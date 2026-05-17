@@ -1,6 +1,6 @@
 <?php 
 include('db_config.php'); 
-if($_SESSION['role'] != 'admin') header("location: login.php");
+if($_SESSION['role'] != 'admin') { header("location: login.php"); exit(); } // [BUG FIX] เพิ่ม exit() หลัง redirect
 ?>
 <!DOCTYPE html>
 <html lang="th">
@@ -47,15 +47,15 @@ if($_SESSION['role'] != 'admin') header("location: login.php");
                             ?>
                             <tr>
                                 <td><?php echo date('d/m/Y H:i', strtotime($row['req_date'])); ?></td>
-                                <td><?php echo $row['requester']; ?></td>
-                                <td class="fw-bold"><?php echo $row['product_name']; ?></td>
+                                <td><?php echo htmlspecialchars($row['requester']); ?></td><!-- [BUG FIX] htmlspecialchars -->
+                                <td class="fw-bold"><?php echo htmlspecialchars($row['product_name']); ?></td>
                                 <td><?php echo $row['request_qty']; ?></td>
                                 <td>
                                     <span class="badge bg-<?php echo ($row['status']=='approved')?'success':'danger'; ?>">
                                         <?php echo ($row['status']=='approved')?'อนุมัติแล้ว':'ไม่อนุมัติ'; ?>
                                     </span>
                                 </td>
-                                <td><small class="text-muted"><?php echo $row['admin_name'] ?? '-'; ?></small></td>
+                                <td><small class="text-muted"><?php echo htmlspecialchars($row['admin_name'] ?? '-'); ?></small></td>
                             </tr>
                             <?php } ?>
                         </tbody>

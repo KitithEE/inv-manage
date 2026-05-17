@@ -43,14 +43,29 @@ if(isset($_SESSION['user_id'])){
 
         <?php
         if(isset($_POST['login'])){
-            // [BUG FIX] เพิ่ม mysqli_real_escape_string ป้องกัน SQL Injection
+            // [BUG FIX] escape username ป้องกัน SQL Injection
             $u = mysqli_real_escape_string($conn, $_POST['username']);
-            $p = mysqli_real_escape_string($conn, $_POST['password']);
+            $p = $_POST['password']; // [BUG FIX] รับ password ดิบไว้เพื่อใช้กับ password_verify()
 
-            $sql = "SELECT * FROM users WHERE username='$u' AND password='$p' AND status='active'";
+            // [BUG FIX] ดึง user ด้วย username อย่างเดียวก่อน แล้วค่อยเช็ค password ด้วย password_verify()
+            // เพราะ password ที่ hash แล้วไม่สามารถ compare ตรงๆ ใน SQL ได้
+            $sql = "SELECT * FROM users WHERE username='$u' AND status='active'";
             $res = mysqli_query($conn, $sql);
+
+            $login_ok = false;
             if(mysqli_num_rows($res) > 0){
                 $row = mysqli_fetch_array($res);
+                // ตรวจสอบด้วย password_verify() สำหรับ password ที่ hash แล้ว
+                if(password_verify($p, $row['password'])){
+                    $login_ok = true;
+                }
+                // [DEV FALLBACK] รองรับ plain text password กรณียังไม่ได้ migrate hash
+                elseif($row['password'] === $p){
+                    $login_ok = true;
+                }
+            }
+
+            if($login_ok){
                 $_SESSION['user_id']   = $row['user_id'];
                 $_SESSION['role']      = $row['role'];
                 $_SESSION['full_name'] = $row['full_name'];

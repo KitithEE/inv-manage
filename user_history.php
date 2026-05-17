@@ -1,7 +1,7 @@
 <?php 
 include('db_config.php'); 
-if(!isset($_SESSION['user_id'])) header("location: login.php");
-$user_id = $_SESSION['user_id'];
+if(!isset($_SESSION['user_id'])) { header("location: login.php"); exit(); } // [BUG FIX] เพิ่ม exit() หลัง redirect
+$user_id = (int)$_SESSION['user_id']; // [BUG FIX] cast เป็น int ป้องกัน SQL Injection
 ?>
 <!DOCTYPE html>
 <html lang="th">
@@ -35,10 +35,18 @@ $user_id = $_SESSION['user_id'];
         ?>
         <div class="card status-card shadow-sm">
             <div class="card-body d-flex align-items-center">
-                <img src="uploads/<?php echo $row['image']; ?>" width="60" height="60" class="rounded me-3" style="object-fit: cover;">
+                <!-- [BUG FIX] เช็คก่อนว่ามีรูปหรือเปล่า ถ้าไม่มีแสดง icon แทน ป้องกัน broken image -->
+                <?php if(!empty($row['image'])): ?>
+                    <img src="uploads/<?php echo htmlspecialchars($row['image']); ?>" width="60" height="60" class="rounded me-3" style="object-fit: cover; flex-shrink: 0;">
+                <?php else: ?>
+                    <div class="bg-secondary text-white rounded d-flex align-items-center justify-content-center me-3" style="width:60px;height:60px;flex-shrink:0;">
+                        <i class="bi bi-box-seam"></i>
+                    </div>
+                <?php endif; ?>
                 <div class="flex-grow-1">
-                    <h6 class="mb-0 fw-bold"><?php echo $row['product_name']; ?></h6>
-                    <small class="text-muted">จำนวน: <?php echo $row['request_qty']; ?> | <?php echo date('d/m/y H:i', strtotime($row['req_date'])); ?></small>
+                    <!-- [BUG FIX] เพิ่ม htmlspecialchars() ป้องกัน XSS -->
+                    <h6 class="mb-0 fw-bold"><?php echo htmlspecialchars($row['product_name']); ?></h6>
+                    <small class="text-muted">จำนวน: <?php echo (int)$row['request_qty']; ?> | <?php echo date('d/m/y H:i', strtotime($row['req_date'])); ?></small>
                 </div>
                 <span class="badge <?php echo $bg; ?>"><?php echo $txt; ?></span>
             </div>

@@ -1,7 +1,7 @@
 <?php
 // นับจำนวนรายการที่ค้างอนุมัติสำหรับจุดแดง
 include('db_config.php');
-if ($_SESSION['role'] != 'admin') header("location: login.php");
+if ($_SESSION['role'] != 'admin') { header("location: login.php"); exit(); } // [BUG FIX] เพิ่ม exit() หลัง redirect
 
 $notif_res = mysqli_query($conn, "SELECT COUNT(*) as total FROM requisitions WHERE status='pending'");
 $notif_data = mysqli_fetch_array($notif_res);

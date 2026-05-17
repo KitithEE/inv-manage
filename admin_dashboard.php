@@ -1,6 +1,6 @@
 <?php
 include('db_config.php');
-if ($_SESSION['role'] != 'admin') header("location: login.php");
+if ($_SESSION['role'] != 'admin') { header("location: login.php"); exit(); } // [BUG FIX] เพิ่ม exit() หลัง redirect
 
 // Query ข้อมูลสรุป
 $total_products = mysqli_fetch_array(mysqli_query($conn, "SELECT COUNT(*) as total FROM products"))['total'];
