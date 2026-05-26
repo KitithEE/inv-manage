@@ -1,6 +1,9 @@
 <?php
-// ===== SECURITY: ป้องกันการเข้าถึงไฟล์โดยตรง =====
-defined('APP_INIT') or define('APP_INIT', true);
+// 1. แก้ไขการป้องกันการเข้าถึงไฟล์โดยตรง (ต้องนิยาม APP_INIT จากไฟล์ index หรือไฟล์หลัก)
+if (!defined('APP_INIT')) {
+    header("HTTP/1.1 403 Forbidden");
+    exit("Direct access not allowed.");
+}
 
 $host = "localhost";
 $user = "root";
@@ -10,28 +13,29 @@ $db   = "inventory_db";
 $conn = mysqli_connect($host, $user, $pass, $db);
 
 if (!$conn) {
-    // ไม่แสดง error detail ใน production
     error_log("DB Connection failed: " . mysqli_connect_error());
     die("ไม่สามารถเชื่อมต่อฐานข้อมูลได้ กรุณาติดต่อผู้ดูแลระบบ");
 }
 
 mysqli_set_charset($conn, "utf8mb4");
 
+// 2. ปรับปรุง Session Security
 if (session_status() === PHP_SESSION_NONE) {
-    // ===== SECURITY: Secure session settings =====
     ini_set('session.cookie_httponly', 1);
-    ini_set('session.cookie_secure', 0); // เปลี่ยนเป็น 1 เมื่อใช้ HTTPS
+    // ตรวจสอบอัตโนมัติว่าเป็น HTTPS หรือไม่
+    $isSecure = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') || $_SERVER['SERVER_PORT'] == 443;
+    ini_set('session.cookie_secure', $isSecure ? 1 : 0);
     ini_set('session.use_strict_mode', 1);
     ini_set('session.cookie_samesite', 'Strict');
     session_start();
 }
 
-// ===== SECURITY: CSRF Token Generator =====
+// CSRF Token
 if (empty($_SESSION['csrf_token'])) {
     $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
 }
 
-// ===== SECURITY: Session timeout (30 นาที) =====
+// Session Timeout
 define('SESSION_TIMEOUT', 1800);
 if (isset($_SESSION['last_activity']) && (time() - $_SESSION['last_activity']) > SESSION_TIMEOUT) {
     session_unset();
@@ -41,24 +45,26 @@ if (isset($_SESSION['last_activity']) && (time() - $_SESSION['last_activity']) >
 }
 $_SESSION['last_activity'] = time();
 
-// ===== SECURITY: Regenerate session ID เป็นระยะ =====
+// Regenerate Session ID
 if (!isset($_SESSION['created'])) {
     $_SESSION['created'] = time();
-} elseif (time() - $_SESSION['created'] > 900) { // ทุก 15 นาที
+} elseif (time() - $_SESSION['created'] > 900) {
     session_regenerate_id(true);
     $_SESSION['created'] = time();
 }
 
-// ===== Helper: CSRF Verify =====
+// Helpers
 function verify_csrf($token) {
     return isset($_SESSION['csrf_token']) && hash_equals($_SESSION['csrf_token'], $token);
 }
 
-// ===== Helper: Safe redirect =====
 function safe_redirect($url) {
     $allowed = ['login.php','admin_inventory.php','admin_dashboard.php',
                 'admin_approval.php','admin_history.php','user_index.php','user_history.php'];
-    if (in_array(basename(parse_url($url, PHP_URL_PATH)), $allowed)) {
+    $path = parse_url($url, PHP_URL_PATH);
+    $filename = basename($path);
+    
+    if (in_array($filename, $allowed)) {
         header("Location: $url");
     } else {
         header("Location: login.php");
@@ -66,15 +72,13 @@ function safe_redirect($url) {
     exit();
 }
 
-// ===== LINE NOTIFY CONFIG =====
-define('LINE_NOTIFY_TOKEN', 'YOUR_LINE_NOTIFY_TOKEN_HERE'); // ใส่ token ของคุณ
-define('LOW_STOCK_THRESHOLD', 5);   // แจ้งเตือนเมื่อเหลือน้อยกว่านี้
-define('ADMIN_EMAIL', 'admin@yourdomain.com'); // Email admin
+// LINE NOTIFY
+define('LINE_NOTIFY_TOKEN', 'YOUR_LINE_NOTIFY_TOKEN_HERE'); 
+define('LOW_STOCK_THRESHOLD', 5);
 
-// ===== Helper: Send LINE Notify =====
 function send_line_notify($message) {
     $token = LINE_NOTIFY_TOKEN;
-    if ($token === 'YOUR_LINE_NOTIFY_TOKEN_HERE') return false; // ยังไม่ได้ตั้งค่า
+    if ($token === 'YOUR_LINE_NOTIFY_TOKEN_HERE') return false;
     
     $ch = curl_init('https://notify-api.line.me/api/notify');
     curl_setopt_array($ch, [
@@ -85,42 +89,37 @@ function send_line_notify($message) {
         CURLOPT_TIMEOUT        => 10,
     ]);
     $result = curl_exec($ch);
-    $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
     curl_close($ch);
-    return $httpCode === 200;
+    return $result;
 }
 
-// ===== Helper: Check & Notify Low Stock =====
+// 3. ปรับปรุงฟังก์ชันแจ้งเตือน (ใช้ Prepared Statement)
 function check_low_stock_notify($conn, $product_id = null) {
     if ($product_id) {
-        $pid = (int)$product_id;
-        $sql = "SELECT product_name, product_code, quantity, unit FROM products 
-                WHERE product_id = $pid AND quantity < " . LOW_STOCK_THRESHOLD;
+        $stmt = mysqli_prepare($conn, "SELECT product_name, product_code, quantity, unit FROM products WHERE product_id = ? AND quantity < ?");
+        $threshold = LOW_STOCK_THRESHOLD;
+        mysqli_stmt_bind_param($stmt, "ii", $product_id, $threshold);
     } else {
-        $sql = "SELECT product_name, product_code, quantity, unit FROM products 
-                WHERE quantity < " . LOW_STOCK_THRESHOLD . " AND quantity >= 0";
+        $stmt = mysqli_prepare($conn, "SELECT product_name, product_code, quantity, unit FROM products WHERE quantity < ? AND quantity >= 0");
+        $threshold = LOW_STOCK_THRESHOLD;
+        mysqli_stmt_bind_param($stmt, "i", $threshold);
     }
     
-    $res = mysqli_query($conn, $sql);
-    if (!$res || mysqli_num_rows($res) === 0) return;
+    mysqli_stmt_execute($stmt);
+    $res = mysqli_stmt_get_result($stmt);
     
-    $items = [];
-    while ($row = mysqli_fetch_assoc($res)) {
-        $items[] = $row;
-    }
-    
-    if (empty($items)) return;
+    if (mysqli_num_rows($res) === 0) return;
     
     $msg = "\n🚨 [แจ้งเตือน Low Stock] ระบบพัสดุ RMUTSB\n";
     $msg .= "━━━━━━━━━━━━━━━━━━━━\n";
-    foreach ($items as $item) {
+    while ($item = mysqli_fetch_assoc($res)) {
         $emoji = $item['quantity'] == 0 ? "🔴" : "🟠";
         $msg .= "$emoji {$item['product_name']} ({$item['product_code']})\n";
         $msg .= "   คงเหลือ: {$item['quantity']} {$item['unit']}\n";
     }
     $msg .= "━━━━━━━━━━━━━━━━━━━━\n";
     $msg .= "📅 " . date('d/m/Y H:i') . "\n";
-    $msg .= "🔗 กรุณาเติมสต็อกพัสดุด่วน!";
+    $msg .= "🔗 กรุณาตรวจสอบในระบบ";
     
     send_line_notify($msg);
 }
